@@ -2,7 +2,7 @@
 
 Autor: Bc. Roland Palgut
 
-Školiteľ: prof. Ing. Kristína Machová, Ph.D
+Školiteľ: prof. Ing. Kristína Machová, PhD.
 
 Konzultant: Ing. Viliam Balara
 
