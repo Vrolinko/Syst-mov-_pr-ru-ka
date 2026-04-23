@@ -6,5 +6,4 @@ Pred samotným použitím fúzie je potrebné najskôr natrénovať jednotlivé 
 
 Pred spustením fúzie je nutné upraviť cesty k modelom BERT a RoBERTa v konfigurácii TEXT_CONFIG, aby ukazovali na správne uložené checkpointy. Bez tejto úpravy skript nebude fungovať správne.
 
-Pri použití modelu VisualBERT sa automaticky vytvára priečinok visualbert_region_cache, ktorý slúži na ukladanie extrahovaných obrazových príznakov a zrýchlenie ďalších behov. V prípade, že sa nepodarí načítať obrázok, systém použije náhradný prázdny obrázok, aby nedošlo k prerušeniu spracovania.
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
