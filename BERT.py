@@ -26,6 +26,7 @@ EPOCHS = 4
 TRAIN_BS = 8
 LR = 1e-5
 
+# Voľba zariadenia
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -52,10 +53,13 @@ def load_jsonl_safe(path):
 class HatefulTextDataset(torch.utils.data.Dataset):
     def __init__(self, df, tokenizer, max_length=128):
         texts = df["text"].fillna("").astype(str).tolist()
+
+        # Tokenizácia textov bez dynamického paddingu
         self.encodings = tokenizer(texts, truncation=True, padding=False, max_length=max_length)
         self.labels = df["label"].tolist()
 
     def __getitem__(self, idx):
+        # Vytvorenie jednej vzorky datasetu
         item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
         item["labels"] = torch.tensor(self.labels[idx])
         return item
@@ -66,13 +70,16 @@ class WeightedTrainer(Trainer):
         labels = inputs.get("labels")
         outputs = model(**inputs)
         logits = outputs.get("logits")
+        # Váhy tried – vyššia váha pre pozitívnu triedu
         weights = torch.tensor([1.0, 1.6], device=device, dtype=logits.dtype)
+        # Výpočet loss funkcie
         loss_fct = nn.CrossEntropyLoss(weight=weights)
         return (loss_fct(logits, labels), outputs) if return_outputs else loss_fct(logits, labels)
 
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
     preds = np.argmax(logits, axis=1)
+    # Pravdepodobnosť pozitívnej triedy
     probs = torch.nn.functional.softmax(torch.tensor(logits), dim=-1)[:, 1].numpy()
     return {
         "accuracy": accuracy_score(labels, preds),
@@ -86,20 +93,26 @@ def compute_metrics(eval_pred):
 if __name__ == "__main__":
     print(f"baseline modelu: {MODEL_NAME}")
 
+    # Načítanie tréningových, validačných a testovacích dát
     train_df = load_jsonl_safe(TRAIN_PATH)
     val_df   = load_jsonl_safe(VAL_PATH)
     test_df  = load_jsonl_safe(TEST_PATH)
 
+    # Kontrola dát
     if train_df.empty or val_df.empty:
         print("Dáta sú prázdne.")
     else:
+        # Načítanie tokenizeru predtrénovaného modelu
         tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+
+        # Vytvorenie datasetov pre tréning, validáciu a testovanie
         train_ds = HatefulTextDataset(train_df, tokenizer, MAX_LEN)
         val_ds   = HatefulTextDataset(val_df, tokenizer, MAX_LEN)
         test_ds  = HatefulTextDataset(test_df, tokenizer, MAX_LEN)
 
         model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2).to(device)
 
+        # Nastavenie tréningových argumentov
         training_args = TrainingArguments(
             output_dir=OUTPUT_DIR,
             eval_strategy="epoch",
@@ -114,6 +127,7 @@ if __name__ == "__main__":
             report_to="none"
         )
 
+        # Inicializácia traineru
         trainer = WeightedTrainer(
             model=model, args=training_args, train_dataset=train_ds,
             eval_dataset=val_ds, data_collator=DataCollatorWithPadding(tokenizer),
