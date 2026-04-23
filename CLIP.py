@@ -34,6 +34,7 @@ TEST_PATH = "data_HF/test_merged.jsonl"
 BEST_AUC_SAVE = "clip_best_auc.pt"
 MODEL_NAME = "openai/clip-vit-base-patch32"
 
+# Hyperparametre
 MAX_LEN = 64
 EPOCHS = 8
 TRAIN_BS = 32
@@ -43,6 +44,7 @@ LR_CLIP = 1e-6
 LR_HEAD = 1e-4
 WEIGHT_DECAY = 0.01
 
+# Voľba zariadenia
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
@@ -54,6 +56,7 @@ class HatefulMemesCLIPDataset(Dataset):
         self.max_len = max_len
         self.is_train = is_train
 
+        # Augmentácia pre tréningové dáta
         if self.is_train:
             self.aug_transform = transforms.Compose([
                 transforms.RandomHorizontalFlip(p=0.5),
@@ -80,6 +83,7 @@ class HatefulMemesCLIPDataset(Dataset):
         if self.aug_transform:
             image = self.aug_transform(image)
 
+        # Spoločné spracovanie textu a obrázka pomocou CLIP processor-a
         enc = self.processor(
             text=[text],
             images=[image],
@@ -113,6 +117,7 @@ class AdvancedCLIPClassifier(nn.Module):
         )
 
     def forward(self, text_feats, image_feats):
+        # Fúzia textových a obrazových príznakov
         fused_feats = torch.cat([
             text_feats,
             image_feats,
@@ -159,15 +164,19 @@ def evaluate(clip_model, classifier, loader, criterion):
             return_dict=True
         )
 
+        # Získanie embeddingov pre text a obrázok
         text_feats = outputs.text_embeds
         img_feats = outputs.image_embeds
 
+        # L2 normalizácia embeddingov
         text_feats = text_feats / text_feats.norm(p=2, dim=-1, keepdim=True)
         img_feats = img_feats / img_feats.norm(p=2, dim=-1, keepdim=True)
 
+        # Výstup klasifikačnej hlavy
         logits = classifier(text_feats, img_feats)
         loss = criterion(logits, labels)
 
+        # Spojenie výstupov zo všetkých batchov
         total_loss += loss.item() * labels.size(0)
         all_logits.append(logits.cpu())
         all_labels.append(labels.cpu())
@@ -177,6 +186,8 @@ def evaluate(clip_model, classifier, loader, criterion):
     y_pred = np.argmax(logits, axis=1)
 
     y_prob = torch.softmax(torch.tensor(logits), dim=1).numpy()[:, 1]
+
+    # Výpočet metrík
     auroc = roc_auc_score(y_true, y_prob) if len(np.unique(y_true)) > 1 else 0.0
     cm = confusion_matrix(y_true, y_pred)
 
@@ -208,12 +219,12 @@ if __name__ == "__main__":
                 data.append(obj)
         return pd.DataFrame(data)
 
-    # 1. Načítanie dát
+    # Načítanie dát
     train_df = load_df(TRAIN_PATH)
     val_df = load_df(VAL_PATH)
     test_df = load_df(TEST_PATH)
 
-    # 2. Príprava Loaderov
+    # Inicializácia CLIP processora a datasetov
     processor = CLIPProcessor.from_pretrained(MODEL_NAME)
     train_ds = HatefulMemesCLIPDataset(train_df, processor, is_train=True, max_len=MAX_LEN)
     val_ds = HatefulMemesCLIPDataset(val_df, processor, is_train=False, max_len=MAX_LEN)
@@ -223,19 +234,21 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_ds, batch_size=TRAIN_BS)
     test_loader = DataLoader(test_ds, batch_size=TRAIN_BS)
 
-    # 3. Inicializácia modelov
+    # Inicializácia modelov
     clip_model = CLIPModel.from_pretrained(MODEL_NAME).to(device)
     classifier = AdvancedCLIPClassifier(input_dim=2048).to(device)
 
-    # 4. Čiastočné odmrazenie
+    # Čiastočné odmrazenie
     for param in clip_model.parameters():
         param.requires_grad = False
+
+    # Odomknutie poslednej vrstvy textovej a obrazovej vetvy
     for param in clip_model.vision_model.encoder.layers[-1].parameters():
         param.requires_grad = True
     for param in clip_model.text_model.encoder.layers[-1].parameters():
         param.requires_grad = True
 
-    # 5. Stratová funkcia a Optimizer
+    # Stratová funkcia a Optimizer
     pos = train_df["label"].sum()
     neg = len(train_df) - pos
     class_weights = torch.tensor([1.0, float(neg / pos)], device=device)
@@ -246,6 +259,7 @@ if __name__ == "__main__":
         {"params": classifier.parameters(), "lr": LR_HEAD}
     ], weight_decay=WEIGHT_DECAY)
 
+    # Mixed precision tréning
     scaler = torch.amp.GradScaler("cuda")
 
     best_auroc = -1.0
@@ -267,12 +281,15 @@ if __name__ == "__main__":
                     return_dict=True
                 )
 
+                # Získanie embeddingov
                 t_feat = outputs.text_embeds
                 i_feat = outputs.image_embeds
 
+                # Normalizácia embeddingov
                 t_feat = t_feat / t_feat.norm(p=2, dim=-1, keepdim=True)
                 i_feat = i_feat / i_feat.norm(p=2, dim=-1, keepdim=True)
 
+                # Klasifikácia
                 logits = classifier(t_feat, i_feat)
                 loss = criterion(logits, batch["labels"].to(device))
 
@@ -297,7 +314,7 @@ if __name__ == "__main__":
             torch.save(classifier.state_dict(), BEST_AUC_SAVE)
             print(f" Najlepší model uložený : {BEST_AUC_SAVE}")
 
-# Test
+    # Test
     print("\n Test")
     if os.path.exists(BEST_AUC_SAVE):
         classifier.load_state_dict(torch.load(BEST_AUC_SAVE))
