@@ -19,6 +19,7 @@ TRAIN_PATH = "data_HF/train.jsonl"
 VAL_PATH = "data_HF/dev_merged.jsonl"
 TEST_PATH = "data_HF/test_merged.jsonl"
 
+# Hyperparametre
 SEED = 42
 IMG_SIZE = 224
 EPOCHS = 10
@@ -69,6 +70,7 @@ class ImgOnlyDataset(Dataset):
 
 @torch.no_grad()
 def evaluate(model, loader):
+    # Vyhodnotenie modelu na validačných dátach
     model.eval()
     all_probs, all_labels = [], []
     for x, y in loader:
@@ -99,7 +101,7 @@ if __name__ == '__main__':
     train_df = load_jsonl(TRAIN_PATH)
     val_df = load_jsonl(VAL_PATH)
 
-    # Augmentácia
+    # Augmentácia pre tréningové dáta
     train_transform = transforms.Compose([
         transforms.Resize((IMG_SIZE, IMG_SIZE)),
         transforms.RandomHorizontalFlip(),
@@ -108,27 +110,32 @@ if __name__ == '__main__':
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
 
+    # Transformácie pre validačné dáta
     val_transform = transforms.Compose([
         transforms.Resize((IMG_SIZE, IMG_SIZE)),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
 
+    # DataLoadery
     train_loader = DataLoader(ImgOnlyDataset(train_df, train_transform), batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(ImgOnlyDataset(val_df, val_transform), batch_size=BATCH_SIZE, shuffle=False)
 
+    # Inicializácia modelu
     model = SimpleCNN().to(device)
 
     pos = train_df["label"].sum()
     neg = len(train_df) - pos
     class_weights = torch.tensor([1.0, float(neg / pos if pos > 0 else 1.0)], device=device)
 
+    # Stratová funkcia a optimalizátor
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
 
     best_auc = -1.0
     best_path = "cnn_image_only_best.pt"
 
+    # Tréning
     for epoch in range(1, EPOCHS + 1):
         model.train()
         pbar = tqdm(train_loader, desc=f"Epocha {epoch}/{EPOCHS}")
@@ -142,7 +149,7 @@ if __name__ == '__main__':
             optimizer.step()
             pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
-        # Vyhodnotenie
+        # Vyhodnotenie po epoche
         auc, f1, acc = evaluate(model, val_loader)
         print(f"\n[VAL] AUC: {auc:.4f} | F1: {f1:.4f} | Acc: {acc:.4f}")
 

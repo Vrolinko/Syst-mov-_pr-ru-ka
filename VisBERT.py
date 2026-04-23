@@ -52,6 +52,7 @@ TEST_PATH = "data_HF/test_merged.jsonl"
 
 BEST_MODEL_PATH = "visualbert_best_merged_AUC.pt"
 
+# Hyperparametre
 MODEL_NAME = "uclanlp/visualbert-vqa-coco-pre"
 MAX_LEN = 64
 MAX_REGIONS = 36
@@ -63,6 +64,7 @@ NUM_WORKERS = 0
 
 CACHE_DIR = "visualbert_region_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
+# Voľba zariadenia
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 use_amp = torch.cuda.is_available()
 
@@ -79,6 +81,7 @@ def load_jsonl(path: str, require_label: bool = True) -> List[Dict[str, Any]]:
                 continue
             obj = json.loads(line)
 
+            # Kontrola povinných polí
             if "img" not in obj or "text" not in obj:
                 continue
 
@@ -103,7 +106,7 @@ def load_jsonl(path: str, require_label: bool = True) -> List[Dict[str, Any]]:
             rows.append(row)
     return rows
 
-
+# Načítanie tréningových, validačných a testovacích dát
 train_rows = load_jsonl(TRAIN_PATH, require_label=True)
 val_rows   = load_jsonl(VAL_PATH, require_label=True)
 test_rows  = load_jsonl(TEST_PATH, require_label=True)
@@ -117,6 +120,7 @@ class FasterRCNNRegionExtractor:
         self.device = device
         self.max_regions = max_regions
 
+        # Načítanie predtrénovaného detektora
         weights = torchvision.models.detection.FasterRCNN_ResNet50_FPN_V2_Weights.DEFAULT
         self.detector = torchvision.models.detection.fasterrcnn_resnet50_fpn_v2(
             weights=weights
@@ -130,7 +134,10 @@ class FasterRCNNRegionExtractor:
         image = pil_image.convert("RGB")
         image_tensor = TVF.to_tensor(image).to(self.device)
 
+        # Predspracovanie obrázka pre Faster R-CNN
         images, _ = self.detector.transform([image_tensor], None)
+
+        # Extrakcia feature máp
         features = self.detector.backbone(images.tensors)
         proposals, _ = self.detector.rpn(images, features, None)
 
@@ -138,8 +145,10 @@ class FasterRCNNRegionExtractor:
         if proposal_boxes.numel() == 0:
             return self._empty_features()
 
+        # Obmedzenie počtu regiónov
         proposal_boxes = proposal_boxes[: self.max_regions]
 
+        # ROI pooling a extrakcia regiónových embeddingov
         roi_features = self.detector.roi_heads.box_roi_pool(
             features,
             [proposal_boxes],
@@ -151,6 +160,7 @@ class FasterRCNNRegionExtractor:
         if num_regions == 0:
             return self._empty_features()
 
+        # Predpripravené nulové tenzory pevnej veľkosti
         visual_embeds = torch.zeros(
             self.max_regions, self.feature_dim, dtype=torch.float32, device=self.device
         )
@@ -158,6 +168,7 @@ class FasterRCNNRegionExtractor:
             self.max_regions, dtype=torch.long, device=self.device
         )
 
+        # Vyplnenie skutočne nájdených regiónov
         visual_embeds[:num_regions] = roi_features[:num_regions]
         visual_attention_mask[:num_regions] = 1
 
@@ -172,7 +183,7 @@ class FasterRCNNRegionExtractor:
         )
         return visual_embeds, visual_attention_mask
 
-
+# Inicializácia extraktora regiónových príznakov
 region_extractor = FasterRCNNRegionExtractor(device=DEVICE, max_regions=MAX_REGIONS)
 
 
@@ -210,6 +221,7 @@ tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
 
 
 class VisualBertHatefulDataset(Dataset):
+    # Dataset pre multimodálnu klasifikáciu
     def __init__(self, rows: List[Dict[str, Any]], max_len: int = 64):
         self.rows = rows
         self.max_len = max_len
@@ -228,6 +240,7 @@ class VisualBertHatefulDataset(Dataset):
             return_tensors="pt",
         )
 
+        # Načítanie alebo vytvorenie regiónových príznakov
         visual_embeds, visual_attention_mask = get_or_create_region_features(
             item["img_path"], item["img"]
         )
@@ -243,11 +256,12 @@ class VisualBertHatefulDataset(Dataset):
         }
         return out
 
-
+# Vytvorenie datasetov
 train_ds = VisualBertHatefulDataset(train_rows, MAX_LEN)
 val_ds   = VisualBertHatefulDataset(val_rows, MAX_LEN)
 test_ds  = VisualBertHatefulDataset(test_rows, MAX_LEN)
 
+# Vytvorenie DataLoaderov
 train_loader = DataLoader(
     train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS
 )
@@ -266,11 +280,13 @@ class VisualBertForBinaryClassification(nn.Module):
     def __init__(self, model_name: str = MODEL_NAME, visual_dim: int = 1024, num_labels: int = 2, weights=None):
         super().__init__()
 
+        # Načítanie konfigurácie modelu
         config = VisualBertConfig.from_pretrained(model_name)
         expected_visual_embedding_dim = 2048
         config.visual_embedding_dim = expected_visual_embedding_dim
         config.num_labels = num_labels
 
+        # Načítanie predtrénovaného VisualBERT modelu
         self.visualbert = VisualBertModel.from_pretrained(
             model_name,
             config=config,
@@ -282,12 +298,13 @@ class VisualBertForBinaryClassification(nn.Module):
         else:
             self.visual_input_projector = None
 
-
+        # Stratová funkcia s váhami tried
         if weights is not None:
             self.criterion = nn.CrossEntropyLoss(weight=weights)
         else:
             self.criterion = nn.CrossEntropyLoss()
 
+        # Klasifikačná hlava
         self.dropout = nn.Dropout(0.2)
         self.classifier = nn.Linear(config.hidden_size, num_labels)
 
@@ -303,8 +320,10 @@ class VisualBertForBinaryClassification(nn.Module):
         if self.visual_input_projector:
             visual_embeds = self.visual_input_projector(visual_embeds)
 
+        # Visual token type ids pre obrazové regióny
         visual_token_type_ids = torch.ones_like(visual_attention_mask)
 
+        # Forward pass cez VisualBERT
         outputs = self.visualbert(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -316,8 +335,11 @@ class VisualBertForBinaryClassification(nn.Module):
         )
 
         pooled_output = outputs.pooler_output
+
+        # Klasifikačné logity
         logits = self.classifier(self.dropout(pooled_output))
 
+        # Loss funckia
         loss = None
         if labels is not None:
             loss = self.criterion(logits, labels)
@@ -380,6 +402,7 @@ def evaluate(model, loader, split_name="VAL"):
         visual_attention_mask = batch["visual_attention_mask"].to(DEVICE)
         labels = batch["label"].to(DEVICE)
 
+        # Forward pass modelu
         loss, logits = model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -389,6 +412,7 @@ def evaluate(model, loader, split_name="VAL"):
             labels=labels,
         )
 
+        # Pravdepodobnosti pozitívnej triedy
         probs = torch.softmax(logits, dim=1)[:, 1].detach().cpu().numpy()
         preds = (probs >= 0.45).astype(int).tolist()
 
@@ -425,12 +449,14 @@ def evaluate(model, loader, split_name="VAL"):
 
 # 8) Tréningový cyklus
 
+# Inicializácia modelu
 model = VisualBertForBinaryClassification(
     model_name=MODEL_NAME,
     visual_dim=1024,
     weights=class_weights.to(DEVICE)
 ).to(DEVICE)
 
+# Optimalizátor
 optimizer = torch.optim.AdamW(
     model.parameters(),
     lr=LR,
@@ -440,6 +466,7 @@ optimizer = torch.optim.AdamW(
 num_training_steps = EPOCHS * len(train_loader)
 num_warmup_steps = int(0.1 * num_training_steps)
 
+# Scheduler pre postupnú zmenu learning rate
 scheduler = get_linear_schedule_with_warmup(
     optimizer=optimizer,
     num_warmup_steps=num_warmup_steps,
@@ -449,6 +476,7 @@ scheduler = get_linear_schedule_with_warmup(
 
 best_auroc = -1.0
 
+# Hlavný tréningový cyklus
 for epoch in range(EPOCHS):
     model.train()
     running_loss = 0.0
@@ -475,6 +503,8 @@ for epoch in range(EPOCHS):
         )
 
         loss.backward()
+
+        # Orezanie gradientov
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         scheduler.step()
@@ -486,6 +516,7 @@ for epoch in range(EPOCHS):
             lr=f"{scheduler.get_last_lr()[0]:.2e}"
         )
 
+    # Vyhodnotenie na validačnej množine po každej epoche
     _, val_metrics = evaluate(model, val_loader, split_name="VAL")
 
 

@@ -8,8 +8,6 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from torchvision.models import resnet50
 
-
-
 from sklearn.metrics import (
     f1_score, roc_auc_score, matthews_corrcoef,
     accuracy_score, confusion_matrix, classification_report
@@ -61,6 +59,11 @@ def min_max_norm(x):
     return (x - x.min()) / (x.max() - x.min() + 1e-10)
 
 def find_best_threshold(y_true, y_prob):
+    """
+    Vyhľadá najlepší klasifikačný prah na validačných dátach
+    na základe maximálneho F1-score.
+    """
+
     best_f1, best_thr = -1, 0.5
     for thr in np.linspace(0.01, 0.99, 99):
         pred = (y_prob >= thr).astype(int)
@@ -70,6 +73,7 @@ def find_best_threshold(y_true, y_prob):
     return best_thr
 
 def metric_bundle(y_true, y_prob, thr):
+    # Vypočíta základné metriky klasifikácie pri zadanom prahu.
     y_pred = (y_prob >= thr).astype(int)
     acc = accuracy_score(y_true, y_pred)
     f1 = f1_score(y_true, y_pred, zero_division=0)
@@ -90,6 +94,7 @@ def metric_bundle(y_true, y_prob, thr):
     }
 
 def evaluate_probs(y_true, y_prob, thr, name, modality):
+    # Vyhodnotí unimodálny model pri zadanom prahu
     m = metric_bundle(y_true, y_prob, thr)
 
     print(f"\n {modality} {name}")
@@ -114,8 +119,10 @@ def evaluate_probs(y_true, y_prob, thr, name, modality):
     }
 
 def alpha_fusion(text_val, img_val, text_test, img_test, y_val, y_test, name):
+    # Realizuje neskorú fúziu
     best_a, best_auc = 0, -1
 
+    # Hľadanie optimálnej váhy alpha v intervale <0,1>
     for a in np.linspace(0, 1, 101):
         p = a * text_val + (1 - a) * img_val
         auc = roc_auc_score(y_val, p)
@@ -123,9 +130,11 @@ def alpha_fusion(text_val, img_val, text_test, img_test, y_val, y_test, name):
             best_auc = auc
             best_a = a
 
+    # Výpočet validačných pravdepodobností pre najlepšiu alpha
     p_val = best_a * text_val + (1 - best_a) * img_val
     best_thr = find_best_threshold(y_val, p_val)
 
+    # Výpočet pravdepodobností na testovacej množine
     p_test = best_a * text_test + (1 - best_a) * img_test
     m = metric_bundle(y_test, p_test, best_thr)
 
@@ -186,6 +195,7 @@ class ResNet50Wrapper(nn.Module):
 # 3) Dáta
 
 def load_jsonl(path):
+    # Načítanie JSONL súboru
     data = []
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -197,6 +207,7 @@ def load_jsonl(path):
             })
     return pd.DataFrame(data)
 
+# Načítanie validačných a testovacích dát
 val_df = load_jsonl(VAL_PATH)
 test_df = load_jsonl(TEST_PATH)
 
@@ -216,12 +227,14 @@ img_preds_val, img_preds_test = {}, {}
 for name, path in IMG_CONFIG.items():
     print(f"\n Spracovanie obrazového modelu: {name}")
 
+    # Vetva pre Vision Transformer
     if name == "ViT":
         processor = ViTImageProcessor.from_pretrained(path)
         model = ViTForImageClassification.from_pretrained(path).to(device)
         model.eval()
 
         def get_vit_probs(df):
+            # získa pravdepodobnosť pozitívnej triedy pre ViT model
             probs = []
             for img_path in tqdm(df["img_path"].tolist(), desc=name):
                 img = Image.open(img_path).convert("RGB")
@@ -237,7 +250,7 @@ for name, path in IMG_CONFIG.items():
         del model, processor
         gc.collect()
         torch.cuda.empty_cache()
-
+    # Vetva pre CNN / ResNet50
     else:
         model = SimpleCNN().to(device) if name == "SimpleCNN" else ResNet50Wrapper().to(device)
         model.load_state_dict(torch.load(path, map_location=device))
@@ -264,7 +277,7 @@ for name, path in IMG_CONFIG.items():
 
         img_preds_val[name] = get_img_probs(val_df)
         img_preds_test[name] = get_img_probs(test_df)
-
+        # Uvoľnenie pamäte
         del model
         gc.collect()
         torch.cuda.empty_cache()
@@ -284,6 +297,7 @@ for name, cfg in TEXT_CONFIG.items():
     model.eval()
 
     def get_text_probs(df):
+        # Získa pravdepodobnosti pozitívnej triedy pre textový model
         probs = []
         for text in tqdm(df["text"].tolist(), desc=name):
             inputs = tokenizer(
@@ -301,6 +315,7 @@ for name, cfg in TEXT_CONFIG.items():
     text_preds_val[name] = get_text_probs(val_df)
     text_preds_test[name] = get_text_probs(test_df)
 
+    # Uvoľnenie pamäte
     del model
     gc.collect()
     torch.cuda.empty_cache()
@@ -317,7 +332,7 @@ results = []
 print("Unimodálne")
 print("="*60)
 
-# TEXT ONLY
+# Vyhodnotenie textových modelov
 for name in text_preds_val:
     val_probs = min_max_norm(text_preds_val[name])
     test_probs = min_max_norm(text_preds_test[name])
@@ -325,7 +340,7 @@ for name in text_preds_val:
     thr = find_best_threshold(y_val, val_probs)
     results.append(evaluate_probs(y_test, test_probs, thr, name, "Text"))
 
-# IMAGE ONLY
+# Vyhodnotenie obrazových modelov
 for name in img_preds_val:
     val_probs = min_max_norm(img_preds_val[name])
     test_probs = min_max_norm(img_preds_test[name])
@@ -337,6 +352,7 @@ for name in img_preds_val:
 print("Fúzia")
 print("="*60)
 
+# Vyhodnotenie všetkých kombinácií textového a obrazového modelu
 for t_name in text_preds_val:
     for i_name in img_preds_val:
         t_v = min_max_norm(text_preds_val[t_name])

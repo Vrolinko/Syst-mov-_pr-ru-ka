@@ -12,7 +12,7 @@ from torchvision.models import resnet50, ResNet50_Weights
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 
 
-# 0) Nastavenia
+# Nastavenia
 
 
 IMG_ROOT = "img"
@@ -21,11 +21,14 @@ TRAIN_PATH = "data_HF/train.jsonl"
 VAL_PATH = "data_HF/dev_merged.jsonl"
 TEST_PATH = "data_HF/test_merged.jsonl"
 
+# Hyperparametre
 SEED = 42
 IMG_SIZE = 224
 EPOCHS = 10
 BATCH_SIZE = 32
 LR = 1e-5
+
+# Voľba zariadenia
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 torch.manual_seed(SEED)
@@ -36,9 +39,13 @@ np.random.seed(SEED)
 class ResNetClassifier(nn.Module):
     def __init__(self, num_classes=2):
         super().__init__()
+
+        # Načítanie predtrénovaných váh modelu ResNet50
         weights = ResNet50_Weights.DEFAULT
         self.resnet = resnet50(weights=weights)
         in_features = self.resnet.fc.in_features
+
+        # Nahradenie pôvodnej klasifikačnej vrstvy vlastnou hlavou
         self.resnet.fc = nn.Sequential(
             nn.Dropout(0.3),
             nn.Linear(in_features, num_classes)
@@ -70,6 +77,7 @@ def evaluate(model, loader):
         x = x.to(device)
         logits = model(x)
 
+        # Pravdepodobnosti pozitívnej triedy
         probs = torch.softmax(logits, dim=1)[:, 1].cpu().numpy()
         all_probs.extend(probs)
         all_labels.extend(y.numpy())
@@ -77,6 +85,7 @@ def evaluate(model, loader):
 
     all_preds = (np.array(all_probs) >= 0.5).astype(int)
 
+    # Výpočet metrík
     f1 = f1_score(all_labels, all_preds, zero_division=0)
     acc = accuracy_score(all_labels, all_preds)
     auc = roc_auc_score(all_labels, all_probs)
@@ -100,24 +109,29 @@ if __name__ == '__main__':
                 })
         return pd.DataFrame(rows)
 
+
+    # Načítanie tréningových a validačných dát
     train_df = load_jsonl_resnet(TRAIN_PATH)
     val_df = load_jsonl_resnet(VAL_PATH)
 
+    # Definícia transformácií pre obrázky
     transform = transforms.Compose([
         transforms.Resize((IMG_SIZE, IMG_SIZE)),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
-
+    # Vytvorenie DataLoaderov
     train_loader = DataLoader(ImgOnlyDataset(train_df, transform), batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(ImgOnlyDataset(val_df, transform), batch_size=BATCH_SIZE, shuffle=False)
 
+    # Inicializácia modelu
     model = ResNetClassifier().to(device)
 
     pos = train_df["label"].sum()
     neg = len(train_df) - pos
     class_weights = torch.tensor([1.0, float(neg / pos if pos > 0 else 1.0)], device=device)
 
+    # Stratová funkcia a optimalizátor
     criterion = nn.CrossEntropyLoss(weight=class_weights)
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR)
 

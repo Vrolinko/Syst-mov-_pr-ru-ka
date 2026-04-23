@@ -22,6 +22,7 @@ MODEL_NAME = "cardiffnlp/twitter-roberta-base-hate"
 OUTPUT_DIR =  "roberta_hate_model_AUC"
 BEST_MODEL_SAVE_DIR = "roberta_final_AUC"
 
+# Voľba zariadenia
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
@@ -38,6 +39,7 @@ def load_text_data(path):
     return pd.DataFrame(rows)
 
 class MemeTextDataset(torch.utils.data.Dataset):
+    # Dataset pre textovú klasifikáciu
     def __init__(self, df, tokenizer):
         self.encodings = tokenizer(
             df["text"].tolist(),
@@ -59,6 +61,7 @@ class MemeTextDataset(torch.utils.data.Dataset):
 # 2) Weighted Trainer
 
 class WeightedTrainer(Trainer):
+    # Vlastný Trainer s váženou stratovou funkciou
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         labels = inputs.get("labels")
         outputs = model(**inputs)
@@ -73,6 +76,7 @@ class WeightedTrainer(Trainer):
 
 # 3) Metriky
 def compute_metrics(eval_pred):
+    # Výpočet metrík počas validácie
     logits, labels = eval_pred
     preds = np.argmax(logits, axis=1)
 
@@ -94,15 +98,18 @@ def compute_metrics(eval_pred):
 
 # 4) Tréningový cyklus
 
+# Načítanie tréningových a validačných dát
 train_df = load_text_data(TRAIN_PATH)
 val_df = load_text_data(VAL_PATH)
 
+# Inicializácia tokenizeru a modelu
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModelForSequenceClassification.from_pretrained(
     MODEL_NAME,
     num_labels=2
 ).to(device)
 
+# Nastavenie tréningových argumentov
 args = TrainingArguments(
     output_dir=OUTPUT_DIR,
     eval_strategy="epoch",
@@ -117,6 +124,7 @@ args = TrainingArguments(
     report_to="none"
 )
 
+# Inicializácia traineru
 trainer = WeightedTrainer(
     model=model,
     args=args,

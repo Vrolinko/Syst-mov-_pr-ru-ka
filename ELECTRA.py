@@ -19,7 +19,7 @@ TRAIN_PATH = "data_HF/train.jsonl"
 VAL_PATH = "data_HF/dev_merged.jsonl"
 TEST_PATH = "data_HF/test_merged.jsonl"
 
-
+# Hyperparametre
 MODEL_NAME = "google/electra-base-discriminator"
 OUTPUT_DIR =  "electra_best_model"
 MAX_LEN = 64
@@ -56,6 +56,7 @@ class TextDataset(torch.utils.data.Dataset):
 # 2) weighted trainer
 
 class WeightedTrainer(Trainer):
+    # Vlastný Trainer s váženou CrossEntropyLoss
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         labels = inputs.get("labels")
         outputs = model(**inputs)
@@ -82,12 +83,15 @@ if __name__ == "__main__":
     train_df = load_jsonl_text(TRAIN_PATH)
     val_df   = load_jsonl_text(VAL_PATH)
 
+    # Inicializácia tokenizeru a modelu
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2).to(device)
 
+    # Vytvorenie datasetov
     train_ds = TextDataset(train_df, tokenizer, MAX_LEN)
     val_ds   = TextDataset(val_df, tokenizer, MAX_LEN)
 
+    # Nastavenie tréningových argumentov
     args = TrainingArguments(
         output_dir=OUTPUT_DIR,
         eval_strategy="epoch",
@@ -101,6 +105,7 @@ if __name__ == "__main__":
         report_to="none"
     )
 
+    # Inicializácia traineru
     trainer = WeightedTrainer(
         model=model, args=args, train_dataset=train_ds, eval_dataset=val_ds,
         data_collator=DataCollatorWithPadding(tokenizer),
