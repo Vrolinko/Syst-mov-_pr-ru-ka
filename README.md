@@ -1,4 +1,8 @@
+#	Porovnanie analýzy toxicity v online priestore uvažovaním unimodálneho a multimodálneho prístupu
+
+
 # Systemova príručka 
+
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Vstupné dáta nie sú priamo súčasťou repozitára, keďže ich veľkosť presahuje limity. Z tohto dôvodu je potrebné ich stiahnuť z: https://huggingface.co/datasets/rolandpalgut/data_dp. Po stiahnutí je potrebné rozbaliť zo zip a zachovať štruktúru, kde sa všetky obrázky nachádzajú v priečinku img.
 
