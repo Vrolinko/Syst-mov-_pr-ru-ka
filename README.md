@@ -1,7 +1,9 @@
 #	Porovnanie analýzy toxicity v online priestore uvažovaním unimodálneho a multimodálneho prístupu
 
 Autor: Bc. Roland Palgut
+
 Školiteľ: prof. Ing. Kristína Machová, Ph.D
+
 Konzultant: Ing. Viliam Balara
 
 # Systemova príručka 
