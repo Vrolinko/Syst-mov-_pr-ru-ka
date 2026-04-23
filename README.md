@@ -1,6 +1,6 @@
 # Systemova príručka 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Vstupné dáta nie sú priamo súčasťou repozitára, keďže ich veľkosť presahuje limity. Z tohto dôvodu je potrebné ich stiahnuť z externého odkazu: [DOPLŇ LINK]. Po stiahnutí je potrebné rozbaliť zo zip a zachovať štruktúru, kde sa všetky obrázky nachádzajú v priečinku img.
+Vstupné dáta nie sú priamo súčasťou repozitára, keďže ich veľkosť presahuje limity. Z tohto dôvodu je potrebné ich stiahnuť z: https://huggingface.co/datasets/rolandpalgut/data_dp. Po stiahnutí je potrebné rozbaliť zo zip a zachovať štruktúru, kde sa všetky obrázky nachádzajú v priečinku img.
 
 Pred samotným použitím fúzie je potrebné najskôr natrénovať jednotlivé modely. Ide o textové modely (BERT, ELECTRA, RoBERTa) a obrazové modely (SimpleCNN, ResNet50, ViT). Po ich natrénovaní a uložení je možné spustiť skript LateFusion.py, ktorý kombinuje ich výstupy.
 
